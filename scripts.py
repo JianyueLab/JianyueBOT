@@ -1,259 +1,354 @@
+# API Scripts for JianyueBot
+"""
+Collection of API utility functions for various services including
+domain registrar search, IP lookup, zipcode search, Minecraft server status,
+and BIN checking.
+"""
+
 import os
+from typing import Dict, Optional, Any
 
 import requests
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv('.env')
-bincheck_apikey = os.getenv('bincheck_apikey')
+BINCHECK_API_KEY = os.getenv('bincheck_apikey')
 
 
-def true_false_judgement(data):
-    if data == 'true':
-        return '✅'
-    elif data == 'false':
-        return '❌'
-    else:
-        return None
-
-def cheapest(tld, order):
-    url = "https://www.nazhumi.com/api/v1?"
-
-    response = requests.get(url + "domain=" + str(tld) + "&order=" + str(order))
-    data = response.json()
-
-    try:
-        if data["code"] == 100:
-            result = {
-                "domain": data["data"]["domain"],
-                "order": data["data"]["order"],
-                "reg_1": data["data"]["price"][0]["registrar"],
-                "new_1": data["data"]["price"][0]["new"],
-                "renew_1": data["data"]["price"][0]["renew"],
-                "transfer_1": data["data"]["price"][0]["transfer"],
-                "currency_1": data["data"]["price"][0]["currency"],
-                "reg_web_1": data["data"]["price"][0]["registrarweb"],
-
-                "reg_2": data["data"]["price"][1]["registrar"],
-                "new_2": data["data"]["price"][1]["new"],
-                "renew_2": data["data"]["price"][1]["renew"],
-                "transfer_2": data["data"]["price"][1]["transfer"],
-                "currency_2": data["data"]["price"][1]["currency"],
-                "reg_web_2": data["data"]["price"][1]["registrarweb"],
-
-                "reg_3": data["data"]["price"][2]["registrar"],
-                "new_3": data["data"]["price"][2]["new"],
-                "renew_3": data["data"]["price"][2]["renew"],
-                "transfer_3": data["data"]["price"][2]["transfer"],
-                "currency_3": data["data"]["price"][2]["currency"],
-                "reg_web_3": data["data"]["price"][2]["registrarweb"],
-
-                "reg_4": data["data"]["price"][3]["registrar"],
-                "new_4": data["data"]["price"][3]["new"],
-                "renew_4": data["data"]["price"][3]["renew"],
-                "transfer_4": data["data"]["price"][3]["transfer"],
-                "currency_4": data["data"]["price"][3]["currency"],
-                "reg_web_4": data["data"]["price"][3]["registrarweb"],
-
-                "reg_5": data["data"]["price"][4]["registrar"],
-                "new_5": data["data"]["price"][4]["new"],
-                "renew_5": data["data"]["price"][4]["renew"],
-                "transfer_5": data["data"]["price"][4]["transfer"],
-                "currency_5": data["data"]["price"][4]["currency"],
-                "reg_web_5": data["data"]["price"][4]["registrarweb"],
-            }
-            return result
-        else:
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while processing the request: {e}")
-        return None
+def true_false_judgement(data: str) -> Optional[str]:
+  """Convert string boolean to emoji representation."""
+  if data == 'true':
+    return '✅'
+  elif data == 'false':
+    return '❌'
+  else:
+    return None
 
 
-def registrar_search(registrar, order):
-    url = "https://www.nazhumi.com/api/v1?"
-
-    response = requests.get(url + "registrar=" + str(registrar) + "&order=" + str(order))
-    data = response.json()
-
-    try:
-        if data["code"] == 100:
-            result = {
-                "reg": data["data"]["registrar"],
-                "order": data["data"]["order"],
-                "reg_web": data["data"]["registrarweb"],
-                "domain_1": data["data"]["price"][0]["domain"],
-                "new_1": data["data"]["price"][0]["new"],
-                "renew_1": data["data"]["price"][0]["renew"],
-                "transfer_1": data["data"]["price"][0]["transfer"],
-                "currency_1": data["data"]["price"][0]["currency"],
-
-                "domain_2": data["data"]["price"][1]["domain"],
-                "new_2": data["data"]["price"][1]["new"],
-                "renew_2": data["data"]["price"][1]["renew"],
-                "transfer_2": data["data"]["price"][1]["transfer"],
-                "currency_2": data["data"]["price"][1]["currency"],
-
-                "domain_3": data["data"]["price"][2]["domain"],
-                "new_3": data["data"]["price"][2]["new"],
-                "renew_3": data["data"]["price"][2]["renew"],
-                "transfer_3": data["data"]["price"][2]["transfer"],
-                "currency_3": data["data"]["price"][2]["currency"],
-
-                "domain_4": data["data"]["price"][3]["domain"],
-                "new_4": data["data"]["price"][3]["new"],
-                "renew_4": data["data"]["price"][3]["renew"],
-                "transfer_4": data["data"]["price"][3]["transfer"],
-                "currency_4": data["data"]["price"][3]["currency"],
-
-                "domain_5": data["data"]["price"][4]["domain"],
-                "new_5": data["data"]["price"][4]["new"],
-                "renew_5": data["data"]["price"][4]["renew"],
-                "transfer_5": data["data"]["price"][4]["transfer"],
-                "currency_5": data["data"]["price"][4]["currency"],
-            }
-            return result
-        else:
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while processing the request: {e}")
-        return None
-
-
-def ipdetails(ipaddress):
-    url = "https://api.iplocation.net/?ip="
-
-    response = requests.get(url + ipaddress)
-    data = response.json()
-
-    try:
-        if data["response_code"] == '200':
-            result = {
-                "ip": data["ip"],
-                "ip_number": data["ip_number"],
-                "ip_version": data["ip_version"],
-                "country_name": data["country_name"],
-                "country_code2": data["country_code2"],
-                "isp": data["isp"],
-                "response_code": data["response_code"],
-                "response_message": data["response_message"]
-            }
-            return result
-        else:
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while processing the request: {e}")
-        return None
-
-
-def iplocations(ipaddress):
-    url = "http://ip-api.com/json/"
-
-    response = requests.get(url + ipaddress)
-    data = response.json()
-
-    try:
-        if data["status"] == "success":
-            result = {
-                "query": data["query"],
-                "country": data["country"],
-                "city": data["city"],
-                "zip": data["zip"],
-                "isp": data["isp"],
-                "org": data["org"],
-                "timezone": data["timezone"],
-                "as": data["as"]
-            }
-            return result
-        else:
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while processing the request: {e}")
-        return None
-
-
-def search_zipcode_jp(zipcode):
-    url = "https://zipcloud.ibsnet.co.jp/api/search"
-    params = {"zipcode": zipcode}
-
+def cheapest(tld: str, order: str) -> Optional[Dict[str, Any]]:
+  """
+  Find the cheapest domain registrar for a given TLD.
+  
+  Args:
+    tld: Top-level domain (e.g., 'com', 'net')
+    order: Order type ('new', 'renew', 'transfer')
+    
+  Returns:
+    Dictionary with registrar pricing information or None if error
+  """
+  url = "https://www.nazhumi.com/api/v1"
+  params = {"domain": tld, "order": order}
+  
+  try:
     response = requests.get(url, params=params)
+    response.raise_for_status()
     data = response.json()
-
-    try:
-        if data["status"] == 200:
-            result = {
-                "address1": data["results"][0]["address1"],
-                "address2": data["results"][0]["address2"],
-                "address3": data["results"][0]["address3"],
-                "kana1": data["results"][0]["kana1"],
-                "kana2": data["results"][0]["kana2"],
-                "kana3": data["results"][0]["kana3"]
-            }
-            return result
-        else:
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while processing the request: {e}")
-        return None
-
-
-def minecraftServer(server_type, server_ip):
-    if server_type.value == 'java':
-        response = requests.get("https://api.mcsrvstat.us/3/" + server_ip)
-        data = response.json()
-
-    elif server_type.value == 'bedrock':
-        response = requests.get("https://api.mcsrvstat.us/bedrock/3/" + server_ip)
-        data = response.json()
-
-    else:
-        return None
-
-    if data["online"]:
+    
+    if data.get("code") == 100 and "data" in data and "price" in data["data"]:
+      prices = data["data"]["price"]
+      if len(prices) >= 5:
         result = {
-            "ip": data["ip"],
-            "port": data["port"],
-            "hostname": data["hostname"],
-            "version": data["protocol"]["name"],
-            "motd": data["motd"]["clean"],
-            "ping": data["debug"]["ping"],
-            "srv": data["debug"]["srv"],
-            "player": data["players"]["online"],
-            "maxPlayer": data["players"]["max"]
+          "domain": data["data"]["domain"],
+          "order": data["data"]["order"]
         }
-
+        
+        # Add pricing data for top 5 registrars
+        for i in range(5):
+          num = ["1st", "2nd", "3rd", "4th", "5th"][i]
+          price_data = prices[i]
+          result.update({
+            f"reg_{num}": price_data["registrar"],
+            f"new_{num}": price_data["new"],
+            f"renew_{num}": price_data["renew"],
+            f"transfer_{num}": price_data["transfer"],
+            f"currency_{num}": price_data["currency"],
+            f"reg_web_{num}": price_data["registrarweb"]
+          })
+        
         return result
+    
+    return None
+    
+  except requests.exceptions.RequestException as e:
+    print(f"Error in cheapest API request: {e}")
+    return None
+  except (KeyError, IndexError) as e:
+    print(f"Error parsing cheapest API response: {e}")
+    return None
 
 
-def bin_check_request(bin_code):
-    url = "https://bin-ip-checker.p.rapidapi.com/"
-
-    querystring = {"bin": [bin_code]}
-
-    payload = {"bin": [bin_code]}
-    headers = {
-        "x-rapidapi-key": f"{bincheck_apikey}",
-        "x-rapidapi-host": "bin-ip-checker.p.rapidapi.com",
-        "Content-Type": "application/json"
-    }
-
-    response = requests.post(url, json=payload, headers=headers, params=querystring)
+def registrar_search(registrar: str, order: Any) -> Optional[Dict[str, Any]]:
+  """
+  Search for domain prices from a specific registrar.
+  
+  Args:
+    registrar: Name of the registrar
+    order: Order type (Choice object or string)
+    
+  Returns:
+    Dictionary with domain pricing information or None if error
+  """
+  url = "https://www.nazhumi.com/api/v1"
+  order_value = order.value if hasattr(order, 'value') else str(order)
+  params = {"registrar": registrar, "order": order_value}
+  
+  try:
+    response = requests.get(url, params=params)
+    response.raise_for_status()
     data = response.json()
-
-    status_code = data["code"]
-    if status_code == 200:
+    
+    if data.get("code") == 100 and "data" in data and "price" in data["data"]:
+      prices = data["data"]["price"]
+      if len(prices) >= 5:
         result = {
-            "valid": data["BIN"]["valid"],
-            "brand": data["BIN"]["brand"],
-            "type": data["BIN"]["type"],
-            "level": data["BIN"]["level"],
-            "is_commercial": true_false_judgement(data["BIN"]["is_commercial"]),
-            "is_prepaid": true_false_judgement(data["BIN"]["is_prepaid"]),
-            "currency": data["BIN"]["currency"],
-            "issuer": data["BIN"]["issuer"]["name"],
-            "country": data["BIN"]["country"]["name"],
-            "flag": data["BIN"]["country"]["flag"],
+          "reg": data["data"]["registrar"],
+          "order": data["data"]["order"],
+          "reg_web": data["data"]["registrarweb"]
         }
-    else:
-        result = None
+        
+        # Add domain pricing data for top 5 results
+        for i in range(5):
+          num = ["1st", "2nd", "3rd", "4th", "5th"][i]
+          price_data = prices[i]
+          result.update({
+            f"domain_{num}": price_data["domain"],
+            f"new_{num}": price_data["new"],
+            f"renew_{num}": price_data["renew"],
+            f"transfer_{num}": price_data["transfer"],
+            f"currency_{num}": price_data["currency"]
+          })
+        
+        return result
+    
+    return None
+    
+  except requests.exceptions.RequestException as e:
+    print(f"Error in registrar search API request: {e}")
+    return None
+  except (KeyError, IndexError) as e:
+    print(f"Error parsing registrar search API response: {e}")
+    return None
 
-    return result
+
+def ipdetails(ipaddress: str) -> Optional[Dict[str, str]]:
+  """
+  Get detailed information about an IP address.
+  
+  Args:
+    ipaddress: IP address to lookup
+    
+  Returns:
+    Dictionary with IP details or None if error
+  """
+  url = "https://api.iplocation.net/"
+  params = {"ip": ipaddress}
+  
+  try:
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    data = response.json()
+    
+    if data.get("response_code") == '200':
+      result = {
+        "ip": data["ip"],
+        "ip_number": data["ip_number"],
+        "ip_version": data["ip_version"],
+        "country_name": data["country_name"],
+        "country_code2": data["country_code2"],
+        "isp": data["isp"],
+        "response_code": data["response_code"],
+        "response_message": data["response_message"]
+      }
+      return result
+    
+    return None
+    
+  except requests.exceptions.RequestException as e:
+    print(f"Error in IP details API request: {e}")
+    return None
+  except KeyError as e:
+    print(f"Error parsing IP details API response: {e}")
+    return None
+
+
+def iplocations(ipaddress: str) -> Optional[Dict[str, str]]:
+  """
+  Get geolocation information for an IP address.
+  
+  Args:
+    ipaddress: IP address to lookup
+    
+  Returns:
+    Dictionary with location details or None if error
+  """
+  url = f"http://ip-api.com/json/{ipaddress}"
+  
+  try:
+    response = requests.get(url)
+    response.raise_for_status()
+    data = response.json()
+    
+    if data.get("status") == "success":
+      result = {
+        "query": data["query"],
+        "country": data["country"],
+        "city": data["city"],
+        "zip": data.get("zip", "N/A"),
+        "isp": data["isp"],
+        "org": data["org"],
+        "timezone": data["timezone"],
+        "as": data["as"]
+      }
+      return result
+    
+    return None
+    
+  except requests.exceptions.RequestException as e:
+    print(f"Error in IP location API request: {e}")
+    return None
+  except KeyError as e:
+    print(f"Error parsing IP location API response: {e}")
+    return None
+
+
+def search_zipcode_jp(zipcode: str) -> Optional[Dict[str, str]]:
+  """
+  Search Japanese address information by zipcode.
+  
+  Args:
+    zipcode: Japanese postal code
+    
+  Returns:
+    Dictionary with address information or None if error
+  """
+  url = "https://zipcloud.ibsnet.co.jp/api/search"
+  params = {"zipcode": zipcode}
+  
+  try:
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    data = response.json()
+    
+    if data.get("status") == 200 and data.get("results"):
+      result_data = data["results"][0]
+      result = {
+        "address1": result_data["address1"],
+        "address2": result_data["address2"],
+        "address3": result_data["address3"],
+        "kana1": result_data["kana1"],
+        "kana2": result_data["kana2"],
+        "kana3": result_data["kana3"]
+      }
+      return result
+    
+    return None
+    
+  except requests.exceptions.RequestException as e:
+    print(f"Error in zipcode API request: {e}")
+    return None
+  except (KeyError, IndexError) as e:
+    print(f"Error parsing zipcode API response: {e}")
+    return None
+
+
+def minecraftServer(server_type: Any, server_ip: str) -> Optional[Dict[str, Any]]:
+  """
+  Get Minecraft server information.
+  
+  Args:
+    server_type: Server type (Choice object with 'java' or 'bedrock' value)
+    server_ip: Server IP address or hostname
+    
+  Returns:
+    Dictionary with server information or None if error
+  """
+  server_type_value = server_type.value if hasattr(server_type, 'value') else str(server_type)
+  
+  if server_type_value == 'java':
+    url = f"https://api.mcsrvstat.us/3/{server_ip}"
+  elif server_type_value == 'bedrock':
+    url = f"https://api.mcsrvstat.us/bedrock/3/{server_ip}"
+  else:
+    return None
+  
+  try:
+    response = requests.get(url)
+    response.raise_for_status()
+    data = response.json()
+    
+    if data.get("online"):
+      result = {
+        "ip": data["ip"],
+        "port": data["port"],
+        "hostname": data.get("hostname", "N/A"),
+        "version": data.get("protocol", {}).get("name", "Unknown"),
+        "motd": data.get("motd", {}).get("clean", "N/A"),
+        "ping": data.get("debug", {}).get("ping", "N/A"),
+        "srv": data.get("debug", {}).get("srv", "N/A"),
+        "player": data.get("players", {}).get("online", 0),
+        "maxPlayer": data.get("players", {}).get("max", 0)
+      }
+      return result
+    
+    return None
+    
+  except requests.exceptions.RequestException as e:
+    print(f"Error in Minecraft server API request: {e}")
+    return None
+  except KeyError as e:
+    print(f"Error parsing Minecraft server API response: {e}")
+    return None
+
+
+def bin_check_request(bin_code: int) -> Optional[Dict[str, Any]]:
+  """
+  Check BIN (Bank Identification Number) information.
+  
+  Args:
+    bin_code: Bank identification number
+    
+  Returns:
+    Dictionary with card information or None if error
+  """
+  if not BINCHECK_API_KEY:
+    print("BIN check API key not configured")
+    return None
+  
+  url = "https://bin-ip-checker.p.rapidapi.com/"
+  payload = {"bin": [bin_code]}
+  headers = {
+    "x-rapidapi-key": BINCHECK_API_KEY,
+    "x-rapidapi-host": "bin-ip-checker.p.rapidapi.com",
+    "Content-Type": "application/json"
+  }
+  
+  try:
+    response = requests.post(url, json=payload, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    
+    if data.get("code") == 200 and "BIN" in data:
+      bin_data = data["BIN"]
+      result = {
+        "valid": bin_data.get("valid", "Unknown"),
+        "brand": bin_data.get("brand", "Unknown"),
+        "type": bin_data.get("type", "Unknown"),
+        "level": bin_data.get("level", "Unknown"),
+        "is_commercial": true_false_judgement(bin_data.get("is_commercial", "")),
+        "is_prepaid": true_false_judgement(bin_data.get("is_prepaid", "")),
+        "currency": bin_data.get("currency", "Unknown"),
+        "issuer": bin_data.get("issuer", {}).get("name", "Unknown"),
+        "country": bin_data.get("country", {}).get("name", "Unknown"),
+        "flag": bin_data.get("country", {}).get("flag", "")
+      }
+      return result
+    
+    return None
+    
+  except requests.exceptions.RequestException as e:
+    print(f"Error in BIN check API request: {e}")
+    return None
+  except KeyError as e:
+    print(f"Error parsing BIN check API response: {e}")
+    return None
