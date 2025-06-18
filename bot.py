@@ -5,14 +5,20 @@ Minecraft server status, and more.
 """
 
 import os
-import random
 from dotenv import load_dotenv
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from scripts import *
+# Import command handlers
+from commands import (
+  say_command, status_command, roll_command, info_command,
+  bincheck_command, domain_command, registrars_command,
+  ipdetail_command, iplocation_command, mcserver_command,
+  zipcode_command, whois_command, add_monitor_command, 
+  remove_monitor_command, list_monitors_command
+)
 
 # Load environment variables
 load_dotenv('.env')
@@ -25,7 +31,7 @@ DEFAULT_VERSION = os.getenv('default_version')
 SETTING_VERSION = os.getenv('setting_version')
 
 # Bot information
-BOT_VERSION = "v0.1.4"
+BOT_VERSION = "v1.0.0"
 BOT_BUILD = "1"
 BOT_TYPE = "Release Build"
 
@@ -33,339 +39,170 @@ BOT_TYPE = "Release Build"
 intents = discord.Intents.all()
 client = commands.Bot(command_prefix='!', intents=intents)
 
+# Global variable for domain monitor
+domain_monitor = None
+
 
 def get_status_from_string(status_string: str) -> discord.Status:
-  """Convert string status to Discord Status enum."""
-  status_map = {
-    'idle': discord.Status.idle,
-    'online': discord.Status.online,
-    'do_not_disturb': discord.Status.dnd
-  }
-  return status_map.get(status_string, discord.Status.online)
+    """Convert string status to Discord Status enum."""
+    status_map = {
+        'idle': discord.Status.idle,
+        'online': discord.Status.online,
+        'do_not_disturb': discord.Status.dnd
+    }
+    return status_map.get(status_string, discord.Status.online)
 
 
 @client.event
 async def on_ready():
-  """Event handler for when the bot is ready."""
-  print("Bot is ready for use!")
-  
-  # Set bot status
-  status = get_status_from_string(DEFAULT_STATUS)
-  activity = discord.Game(DEFAULT_CUSTOM_STATUS)
-  await client.change_presence(status=status, activity=activity)
-  
-  # Sync slash commands
-  try:
-    synced = await client.tree.sync()
-    print(f"Synced {len(synced)} command(s)")
-  except Exception as e:
-    print(f"Failed to sync commands: {e}")
+    """Event handler for when the bot is ready."""
+    global domain_monitor
+    
+    print("Bot is ready for use!")
+    
+    # Set bot status
+    status = get_status_from_string(DEFAULT_STATUS)
+    activity = discord.Game(DEFAULT_CUSTOM_STATUS)
+    await client.change_presence(status=status, activity=activity)
+    
+    # Sync slash commands
+    try:
+        synced = await client.tree.sync()
+        print(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+    
+    # Setup domain monitoring after bot is ready
+    try:
+        from commands.whois.monitor import setup_domain_monitor
+        domain_monitor = setup_domain_monitor(client)
+        print("Domain monitoring system initialized")
+    except Exception as e:
+        print(f"Failed to initialize domain monitoring: {e}")
 
 
 @client.tree.command(name="say", description="Let bot say something.")
 @app_commands.describe(things_to_say="What should I say?")
 async def say(interaction: discord.Interaction, things_to_say: str):
-  """Make the bot say something."""
-  await interaction.response.send_message(things_to_say)
+    """Make the bot say something."""
+    await say_command(interaction, things_to_say)
 
 
 @client.tree.command(name="status", description="Change the bot's status")
 @app_commands.choices(
-  choices=[
-    app_commands.Choice(name="Online", value="online"),
-    app_commands.Choice(name="Idle", value="idle"),
-    app_commands.Choice(name="Do Not Disturb", value="dnd"),
-  ]
+    choices=[
+        app_commands.Choice(name="Online", value="online"),
+        app_commands.Choice(name="Idle", value="idle"),
+        app_commands.Choice(name="Do Not Disturb", value="dnd"),
+    ]
 )
 async def status(interaction: discord.Interaction, choices: app_commands.Choice[str], *, custom_status_message: str):
-  """Change the bot's status and custom message."""
-  status_map = {
-    "online": discord.Status.online,
-    "idle": discord.Status.idle,
-    "dnd": discord.Status.dnd
-  }
-  
-  new_status = status_map.get(choices.value)
-  if not new_status:
-    await interaction.response.send_message(
-      "Unknown status. Please specify 'online', 'idle', or 'dnd'",
-      ephemeral=True
-    )
-    return
-
-  activity = discord.Game(custom_status_message)
-  await client.change_presence(status=new_status, activity=activity)
-  await interaction.response.send_message("Status updated!", ephemeral=True)
+    """Change the bot's status and custom message."""
+    await status_command(interaction, choices, custom_status_message, client)
 
 
 @client.tree.command(name='roll', description='Roll a dice.')
 async def roll(interaction: discord.Interaction):
-  """Roll a six-sided dice."""
-  number = random.randint(1, 6)
-  await interaction.response.send_message(f"🎲 Rolled: {number}")
+    """Roll a six-sided dice."""
+    await roll_command(interaction)
 
 
 @client.tree.command(name='zipcode', description='Search address from zipcode')
 @app_commands.choices(
-  country=[
-    app_commands.Choice(name='Japan', value='JP'),
-  ]
+    country=[
+        app_commands.Choice(name='Japan', value='JP'),
+    ]
 )
 async def zipcode(interaction: discord.Interaction, country: app_commands.Choice[str], zipcodes: str):
-  """Search for address information using a zipcode."""
-  await interaction.response.defer(ephemeral=True)
-  
-  if country.value == 'JP':
-    result = search_zipcode_jp(zipcodes)
-    if result is None:
-      await interaction.followup.send("Invalid zipcode.")
-    else:
-      await interaction.followup.send(
-        f"**Prefecture 都道府県:** {result['address1']} {result['kana1']}\n"
-        f"**City 市区町村:** {result['address2']} {result['kana2']}\n"
-        f"**Town 町域:** {result['address3']} {result['kana3']}"
-      )
-  else:
-    await interaction.followup.send("Invalid country.")
+    """Search for address information using a zipcode."""
+    await zipcode_command(interaction, country, zipcodes)
 
 
 @client.tree.command(name='ipdetail', description="Show details from IP address")
 async def ipdetail(interaction: discord.Interaction, ipaddress: str):
-  """Get detailed information about an IP address."""
-  await interaction.response.defer(ephemeral=True)
-  
-  result = ipdetails(ipaddress)
-  if result is None:
-    await interaction.followup.send("Invalid IP address or internal error")
-    return
-
-  embed = discord.Embed(
-    colour=discord.Colour.blue(),
-    title="IP Details",
-    description=f"Information for {ipaddress}"
-  )
-  
-  fields = [
-    ('IP Address', result['ip']),
-    ('IP Number', result['ip_number']),
-    ('IP Version', result['ip_version']),
-    ('Country', result['country_name']),
-    ('Country Code', result['country_code2']),
-    ('ISP', result['isp']),
-    ('Response Code', result['response_code']),
-    ('Response Message', result['response_message'])
-  ]
-  
-  for name, value in fields:
-    embed.add_field(name=name, value=value, inline=True)
-
-  await interaction.followup.send(embed=embed)
+    """Get detailed information about an IP address."""
+    await ipdetail_command(interaction, ipaddress)
 
 
 @client.tree.command(name='iplocation', description="Show geolocation from IP address")
 async def iplocation(interaction: discord.Interaction, ipaddress: str):
-  """Get geolocation information for an IP address."""
-  await interaction.response.defer(ephemeral=True)
-  
-  result = iplocations(ipaddress)
-  if result is None:
-    await interaction.followup.send("Invalid IP address or internal error")
-    return
-
-  embed = discord.Embed(
-    colour=discord.Colour.blue(),
-    title="IP Location",
-    description=f"Location information for {ipaddress}"
-  )
-  
-  fields = [
-    ('Query', result['query']),
-    ('Timezone', result['timezone']),
-    ('Country', result['country']),
-    ('City', result['city']),
-    ('ISP', result['isp']),
-    ('Organization', result['org']),
-    ('ASN', result['as'])
-  ]
-  
-  for name, value in fields:
-    embed.add_field(name=name, value=value, inline=True)
-
-  await interaction.followup.send(embed=embed)
+    """Get geolocation information for an IP address."""
+    await iplocation_command(interaction, ipaddress)
 
 
 @client.tree.command(name='domain', description='Find the cheapest domain registrar')
 @app_commands.choices(
-  order=[
-    app_commands.Choice(name='New', value='new'),
-    app_commands.Choice(name='Renew', value='renew'),
-    app_commands.Choice(name='Transfer', value='transfer'),
-  ]
+    order=[
+        app_commands.Choice(name='New', value='new'),
+        app_commands.Choice(name='Renew', value='renew'),
+        app_commands.Choice(name='Transfer', value='transfer'),
+    ]
 )
 async def domain(interaction: discord.Interaction, tld: str, order: app_commands.Choice[str]):
-  """Find the cheapest domain registrar for a given TLD."""
-  await interaction.response.defer(ephemeral=True)
-  
-  result = cheapest(tld, order.value)
-  if result is None:
-    await interaction.followup.send("Invalid input or internal error")
-    return
-
-  def format_registrar_info(num: str) -> str:
-    """Format registrar information for display."""
-    return (
-      f"### {num}:\n"
-      f"- **Registrar**: {result[f'reg_{num}']}\n"
-      f"- **Currency**: {result[f'currency_{num}']}\n"
-      f"- **New**: {result[f'new_{num}']}\n"
-      f"- **Renew**: {result[f'renew_{num}']}\n"
-      f"- **Transfer**: {result[f'transfer_{num}']}\n"
-      f"- **Website**: {result[f'reg_web_{num}']}\n"
-    )
-
-  message = (
-    f"## Domain Registrar Comparison\n"
-    f"**TLD**: {result['domain']} | **Order**: {result['order']}\n\n"
-    f"{format_registrar_info('1st')}"
-    f"{format_registrar_info('2nd')}"
-    f"{format_registrar_info('3rd')}"
-    f"{format_registrar_info('4th')}"
-    f"{format_registrar_info('5th')}"
-  )
-
-  await interaction.followup.send(message)
+    """Find the cheapest domain registrar for a given TLD."""
+    await domain_command(interaction, tld, order)
 
 
 @client.tree.command(name='registrars', description='Search domains by registrar')
 @app_commands.choices(
-  order=[
-    app_commands.Choice(name='New', value='new'),
-    app_commands.Choice(name='Renew', value='renew'),
-    app_commands.Choice(name='Transfer', value='transfer'),
-  ],
+    order=[
+        app_commands.Choice(name='New', value='new'),
+        app_commands.Choice(name='Renew', value='renew'),
+        app_commands.Choice(name='Transfer', value='transfer'),
+    ],
 )
 async def registrars(interaction: discord.Interaction, registrar: str, order: app_commands.Choice[str]):
-  """Search for domain prices from a specific registrar."""
-  await interaction.response.defer(ephemeral=True)
-  
-  result = registrar_search(registrar, order)
-  if result is None:
-    await interaction.followup.send("Invalid input or internal error")
-    return
-
-  def format_domain_info(num: str) -> str:
-    """Format domain information for display."""
-    return (
-      f"### {num}:\n"
-      f"**Domain**: {result[f'domain_{num}']}\n"
-      f"**New**: {result[f'new_{num}']}\n"
-      f"**Renew**: {result[f'renew_{num}']}\n"
-      f"**Transfer**: {result[f'transfer_{num}']}\n"
-      f"**Currency**: {result[f'currency_{num}']}\n"
-    )
-
-  message = (
-    f"## Domain Prices by Registrar\n"
-    f"**Registrar**: {result['reg']} | **Website**: {result['reg_web']} | **Order**: {result['order']}\n\n"
-    f"{format_domain_info('1st')}"
-    f"{format_domain_info('2nd')}"
-    f"{format_domain_info('3rd')}"
-    f"{format_domain_info('4th')}"
-    f"{format_domain_info('5th')}"
-  )
-
-  await interaction.followup.send(message)
+    """Search for domain prices from a specific registrar."""
+    await registrars_command(interaction, registrar, order)
 
 
 @client.tree.command(name='mcserver', description='Get details of a Minecraft server')
 @app_commands.choices(
-  server_type=[
-    app_commands.Choice(name='Java', value='java'),
-    app_commands.Choice(name='Bedrock', value='bedrock'),
-  ]
+    server_type=[
+        app_commands.Choice(name='Java', value='java'),
+        app_commands.Choice(name='Bedrock', value='bedrock'),
+    ]
 )
 async def mcserver(interaction: discord.Interaction, server_type: app_commands.Choice[str], ipaddress: str):
-  """Get information about a Minecraft server."""
-  await interaction.response.defer(ephemeral=True)
-  
-  result = minecraftServer(server_type, ipaddress)
-  if result is None:
-    await interaction.followup.send("Invalid input or server type")
-    return
-
-  embed = discord.Embed(
-    colour=discord.Colour.dark_grey(),
-    title="🎮 Minecraft Server Info",
-    description=f"Server information for {ipaddress}"
-  )
-  
-  fields = [
-    ('IP Address', result['ip']),
-    ('Port', result['port']),
-    ('Hostname', result['hostname']),
-    ('Version', result['version']),
-    ('MOTD', result['motd']),
-    ('Ping', f"{result['ping']}ms"),
-    ('SRV Record', result['srv']),
-    ('Players', f"{result['player']} / {result['maxPlayer']}")
-  ]
-  
-  for name, value in fields:
-    embed.add_field(name=name, value=value, inline=True)
-
-  await interaction.followup.send(embed=embed)
+    """Get information about a Minecraft server."""
+    await mcserver_command(interaction, server_type, ipaddress)
 
 
 @client.tree.command(name='bincheck', description="Check card issuer and country from BIN")
 async def bincheck(interaction: discord.Interaction, bin_code: int):
-  """Check card information from BIN (Bank Identification Number)."""
-  await interaction.response.defer(ephemeral=True)
-  
-  result = bin_check_request(bin_code)
-  if result is None:
-    await interaction.followup.send("Request error or BIN code doesn't exist")
-    return
-
-  embed = discord.Embed(
-    colour=discord.Colour.dark_grey(),
-    title="💳 BIN Check Results",
-    description=f"Card information for BIN: {bin_code}"
-  )
-  
-  fields = [
-    ('Valid', result['valid']),
-    ('Brand', result['brand']),
-    ('Type', result['type']),
-    ('Level', result['level']),
-    ('Commercial', result['is_commercial']),
-    ('Prepaid', result['is_prepaid']),
-    ('Currency', result['currency']),
-    ('Country', result['country']),
-    ('Flag', result['flag']),
-    ('Issuer', result['issuer'])
-  ]
-  
-  for name, value in fields:
-    embed.add_field(name=name, value=value, inline=True)
-
-  await interaction.followup.send(embed=embed, ephemeral=True)
+    """Check card information from BIN (Bank Identification Number)."""
+    await bincheck_command(interaction, bin_code)
 
 
 @client.tree.command(name='info', description="Information about this bot")
 async def info(interaction: discord.Interaction):
-  """Display bot information and credits."""
-  await interaction.response.send_message(
-    "## 🤖 JianyueBot\n"
-    "This bot was developed by [JianyueLab](https://awa.ms).\n"
-    "If you have any questions or require assistance, please contact @jianyuehugo.\n\n"
-    f"- **GitHub Repo**: https://github.com/jianyuelab/jianyuebot\n"
-    f"- **Bot Version**: {BOT_VERSION}\n"
-    f"- **Bot Build**: {BOT_BUILD}\n"
-    f"- **Settings Version**: {SETTING_VERSION}\n"
-    f"- **Build Type**: {BOT_TYPE}",
-    ephemeral=True
-  )
+    """Display bot information and credits."""
+    await info_command(interaction, BOT_VERSION, BOT_BUILD, SETTING_VERSION, BOT_TYPE)
+
+
+@client.tree.command(name='whois', description='Get domain whois information')
+async def whois(interaction: discord.Interaction, domain: str):
+    """Get whois information for a domain."""
+    await whois_command(interaction, domain)
+
+
+@client.tree.command(name='domain-monitor-add', description='Add a domain to monitoring list')
+async def domain_monitor_add(interaction: discord.Interaction, domain: str):
+    """Add a domain to your monitoring list."""
+    await add_monitor_command(interaction, domain)
+
+
+@client.tree.command(name='domain-monitor-remove', description='Remove a domain from monitoring list')
+async def domain_monitor_remove(interaction: discord.Interaction, domain: str):
+    """Remove a domain from your monitoring list."""
+    await remove_monitor_command(interaction, domain)
+
+
+@client.tree.command(name='domain-monitor-list', description='List your monitored domains')
+async def domain_monitor_list(interaction: discord.Interaction):
+    """List all your monitored domains."""
+    await list_monitors_command(interaction)
 
 
 if __name__ == "__main__":
-  client.run(TOKEN)
+    client.run(TOKEN)
