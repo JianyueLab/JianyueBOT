@@ -1,8 +1,79 @@
 import discord
 from discord import app_commands
 from .script import checkWhois, add_domain_monitor, remove_domain_monitor, list_monitored_domains, check_expiring_domains
-from datetime import datetime
+from datetime import datetime, timezone
 import json
+import re
+
+
+def parse_iso_datetime(date_string):
+    """
+    Parse ISO 8601 datetime string with various formats.
+    Supports formats like:
+    - 2024-01-15T10:30:00Z
+    - 2024-01-15T10:30:00.123Z
+    - 2024-01-15T10:30:00+00:00
+    - 2024-01-15T10:30:00.123456+00:00
+    """
+    if not date_string:
+        return None
+    
+    try:
+        # Handle 'Z' suffix (UTC timezone)
+        if date_string.endswith('Z'):
+            date_string = date_string[:-1] + '+00:00'
+        
+        # Parse the datetime
+        # Try with fromisoformat first (Python 3.7+)
+        try:
+            return datetime.fromisoformat(date_string)
+        except ValueError:
+            # Fallback for edge cases
+            # Remove microseconds if they have more than 6 digits
+            date_string = re.sub(r'\.(\d{6})\d+', r'.\1', date_string)
+            return datetime.fromisoformat(date_string)
+            
+    except (ValueError, AttributeError) as e:
+        # If parsing fails, try alternative parsing methods
+        try:
+            # Try parsing without timezone info and assume UTC
+            if '+' in date_string or date_string.endswith('Z'):
+                # Strip timezone info and parse as UTC
+                clean_date = re.sub(r'[+\-]\d{2}:\d{2}$|Z$', '', date_string)
+                dt = datetime.fromisoformat(clean_date)
+                return dt.replace(tzinfo=timezone.utc)
+            else:
+                # Parse as-is and assume UTC
+                dt = datetime.fromisoformat(date_string)
+                return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+        except:
+            return None
+
+
+def format_domain_date(date_string, field_name="Date"):
+    """
+    Format a domain date string for display.
+    Returns tuple of (formatted_date, days_until_date) or (original_string, None) if parsing fails.
+    """
+    if not date_string:
+        return "Unknown", None
+    
+    parsed_date = parse_iso_datetime(date_string)
+    if parsed_date:
+        try:
+            # Calculate days difference for expiration dates
+            if "expir" in field_name.lower():
+                now = datetime.now(timezone.utc)
+                if parsed_date.tzinfo is None:
+                    parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+                days_until = (parsed_date - now).days
+                return parsed_date.strftime('%Y-%m-%d %H:%M UTC'), days_until
+            else:
+                return parsed_date.strftime('%Y-%m-%d %H:%M UTC'), None
+        except:
+            return parsed_date.strftime('%Y-%m-%d'), None
+    else:
+        return date_string, None
 
 
 async def whois_command(interaction: discord.Interaction, domain: str):
@@ -70,66 +141,50 @@ async def whois_command(interaction: discord.Interaction, domain: str):
         
         # Dates Information
         if result.get('creation_date'):
-            try:
-                creation_date = datetime.fromisoformat(result['creation_date'].replace('Z', '+00:00'))
-                embed.add_field(
-                    name="Creation Date",
-                    value=f"{creation_date.strftime('%Y-%m-%d')}",
-                    inline=True
-                )
-            except:
-                embed.add_field(
-                    name="Creation Date",
-                    value=result['creation_date'],
-                    inline=True
-                )
+            formatted_date, _ = format_domain_date(result['creation_date'], "Creation Date")
+            embed.add_field(
+                name="Creation Date",
+                value=formatted_date,
+                inline=True
+            )
         
         if result.get('updated_date'):
-            try:
-                updated_date = datetime.fromisoformat(result['updated_date'].replace('Z', '+00:00'))
-                embed.add_field(
-                    name="Last Updated",
-                    value=f"{updated_date.strftime('%Y-%m-%d')}",
-                    inline=True
-                )
-            except:
-                embed.add_field(
-                    name="Last Updated",
-                    value=result['updated_date'],
-                    inline=True
-                )
+            formatted_date, _ = format_domain_date(result['updated_date'], "Updated Date")
+            embed.add_field(
+                name="Last Updated",
+                value=formatted_date,
+                inline=True
+            )
         
         if result.get('expiration_date'):
-            try:
-                # Parse the expiration date (ISO 8601 format)
-                exp_date = datetime.fromisoformat(result['expiration_date'].replace('Z', '+00:00'))
-                days_until_expiry = (exp_date - datetime.now(exp_date.tzinfo)).days
-                
-                embed.add_field(
-                    name="Expiration Date",
-                    value=f"{exp_date.strftime('%Y-%m-%d')}",
-                    inline=True
-                )
-                
+            formatted_date, days_until_expiry = format_domain_date(result['expiration_date'], "Expiration Date")
+            
+            embed.add_field(
+                name="Expiration Date",
+                value=formatted_date,
+                inline=True
+            )
+            
+            if days_until_expiry is not None:
                 embed.add_field(
                     name="Days Left",
                     value=f"{days_until_expiry} days",
                     inline=True
                 )
                 
-                if days_until_expiry <= 7:
-                    embed.color = 0xff0000
+                # Set warning colors and messages based on days left
+                if days_until_expiry <= 0:
+                    embed.color = 0x8b0000  # Dark red for expired
+                    embed.set_footer(text="🚨 Domain has expired!")
+                elif days_until_expiry <= 7:
+                    embed.color = 0xff0000  # Red for urgent
                     embed.set_footer(text="⚠️ Domain is about to expire!")
                 elif days_until_expiry <= 30:
-                    embed.color = 0xffa500
+                    embed.color = 0xffa500  # Orange for warning
                     embed.set_footer(text="⚠️ Domain will expire in one month")
-                    
-            except Exception as e:
-                embed.add_field(
-                    name="Expiration Date",
-                    value=result['expiration_date'],
-                    inline=True
-                )
+                elif days_until_expiry <= 90:
+                    embed.color = 0xffff00  # Yellow for caution
+                    embed.set_footer(text="⚠️ Domain will expire in 3 months")
         
         # Registrant Information
         if result.get('registrant_organization') or result.get('registrant_name'):
@@ -254,32 +309,29 @@ async def add_monitor_command(interaction: discord.Interaction, domain: str):
         if success:
             embed = discord.Embed(
                 title="✅ Domain Monitor Added",
-                description=f"Domain **{domain_info['domain']}** has been added to the monitor list",
+                description=f"Domain **{normalized_domain}** has been added to the monitor list",
                 color=0x00ff00
             )
             
             if domain_info.get('expiration_date'):
-                try:
-                    exp_date = datetime.fromisoformat(domain_info['expiration_date'].replace('Z', '+00:00'))
-                    days_until_expiry = (exp_date - datetime.now(exp_date.tzinfo)).days
-                    
-                    embed.add_field(
-                        name="Expiration Date",
-                        value=f"{exp_date.strftime('%Y-%m-%d')}",
-                        inline=True
-                    )
-                    
+                formatted_date, days_until_expiry = format_domain_date(domain_info['expiration_date'], "Expiration Date")
+                
+                embed.add_field(
+                    name="Expiration Date",
+                    value=formatted_date,
+                    inline=True
+                )
+                
+                if days_until_expiry is not None:
                     embed.add_field(
                         name="Days Left",
                         value=f"{days_until_expiry} days",
                         inline=True
                     )
-                except:
-                    pass
                     
             await interaction.followup.send(embed=embed)
         else:
-            await interaction.followup.send(f"❌ Domain {domain} is already in the monitor list")
+            await interaction.followup.send(f"❌ Domain {normalized_domain} is already in the monitor list")
             
     except Exception as e:
         await interaction.followup.send(f"❌ Error adding domain monitor: {str(e)}")
@@ -345,18 +397,22 @@ async def list_monitors_command(interaction: discord.Interaction):
             registrant_org = domain_data.get('registrant_organization', 'Unknown')
             
             if expiration_date and expiration_date != 'Unknown':
-                try:
-                    exp_date = datetime.fromisoformat(expiration_date.replace('Z', '+00:00'))
-                    days_until_expiry = (exp_date - datetime.now(exp_date.tzinfo)).days
-                    
-                    status_emoji = "🟢"  # Green
-                    if days_until_expiry <= 7:
-                        status_emoji = "🔴"  # Red
+                formatted_date, days_until_expiry = format_domain_date(expiration_date, "Expiration Date")
+                
+                if days_until_expiry is not None:
+                    # Set status emoji based on days left
+                    status_emoji = "🟢"  # Green - safe
+                    if days_until_expiry <= 0:
+                        status_emoji = "🚨"  # Expired
+                    elif days_until_expiry <= 7:
+                        status_emoji = "🔴"  # Red - urgent
                     elif days_until_expiry <= 30:
-                        status_emoji = "🟡"  # Yellow
+                        status_emoji = "🟡"  # Yellow - warning
+                    elif days_until_expiry <= 90:
+                        status_emoji = "🟠"  # Orange - caution
                     
                     # Create detailed info
-                    domain_info = f"**Expires:** {exp_date.strftime('%Y-%m-%d')}\n"
+                    domain_info = f"**Expires:** {formatted_date}\n"
                     domain_info += f"**Days Left:** {days_until_expiry}\n"
                     domain_info += f"**Registrar:** {registrar}\n"
                     if registrant_org and registrant_org != 'Unknown':
@@ -367,10 +423,11 @@ async def list_monitors_command(interaction: discord.Interaction):
                         value=domain_info,
                         inline=True
                     )
-                except:
+                else:
+                    # Could not parse date but have expiration info
                     embed.add_field(
                         name=f"⚪ {domain}",
-                        value=f"Expiration Date: {expiration_date}\nRegistrar: {registrar}",
+                        value=f"**Expires:** {formatted_date}\n**Registrar:** {registrar}",
                         inline=True
                     )
             else:

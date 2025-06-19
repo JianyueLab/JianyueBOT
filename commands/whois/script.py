@@ -3,7 +3,7 @@ from cloudflare import Cloudflare
 from typing import Optional, Dict, Any, List
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
 from urllib.parse import quote
 
@@ -13,6 +13,50 @@ client = Cloudflare(
 
 # 监控数据文件路径
 MONITOR_FILE = "domain_monitors.json"
+
+
+def parse_iso_datetime(date_string):
+    """
+    Parse ISO 8601 datetime string with various formats.
+    Supports formats like:
+    - 2024-01-15T10:30:00Z
+    - 2024-01-15T10:30:00.123Z
+    - 2024-01-15T10:30:00+00:00
+    - 2024-01-15T10:30:00.123456+00:00
+    """
+    if not date_string:
+        return None
+    
+    try:
+        # Handle 'Z' suffix (UTC timezone)
+        if date_string.endswith('Z'):
+            date_string = date_string[:-1] + '+00:00'
+        
+        # Parse the datetime
+        # Try with fromisoformat first (Python 3.7+)
+        try:
+            return datetime.fromisoformat(date_string)
+        except ValueError:
+            # Fallback for edge cases
+            # Remove microseconds if they have more than 6 digits
+            date_string = re.sub(r'\.(\d{6})\d+', r'.\1', date_string)
+            return datetime.fromisoformat(date_string)
+            
+    except (ValueError, AttributeError) as e:
+        # If parsing fails, try alternative parsing methods
+        try:
+            # Try parsing without timezone info and assume UTC
+            if '+' in date_string or date_string.endswith('Z'):
+                # Strip timezone info and parse as UTC
+                clean_date = re.sub(r'[+\-]\d{2}:\d{2}$|Z$', '', date_string)
+                dt = datetime.fromisoformat(clean_date)
+                return dt.replace(tzinfo=timezone.utc)
+            else:
+                # Parse as-is and assume UTC
+                dt = datetime.fromisoformat(date_string)
+                return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+        except:
+            return None
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -83,22 +127,29 @@ def checkWhois(domain: str) -> Optional[Dict[str, Any]]:
         
         # Create result dict with safe attribute access
         result = {
-            "domain": getattr(whois, 'domain', normalized_domain),
-            "expiration_date": getattr(whois, 'expiration_date_raw', None),
+            "domain": normalized_domain,  # Always use normalized domain as primary
             "registrar": getattr(whois, 'registrar', None),
         }
         
         # Try to get additional fields if they exist
         try:
-            result["creation_date"] = getattr(whois, 'creation_date_raw', None)
+            creation_date = getattr(whois, 'creation_date', None)
+            result["creation_date"] = creation_date.isoformat() if creation_date else None
         except:
             result["creation_date"] = None
             
         try:
-            result["updated_date"] = getattr(whois, 'updated_date_raw', None)
+            updated_date = getattr(whois, 'updated_date', None)
+            result["updated_date"] = updated_date.isoformat() if updated_date else None
         except:
             result["updated_date"] = None
             
+        try:
+            expiration_date = getattr(whois, 'expiration_date', None)
+            result["expiration_date"] = expiration_date.isoformat() if expiration_date else None
+        except:
+            result["expiration_date"] = None
+        
         try:
             result["registrant_organization"] = getattr(whois, 'registrant_organization', None)
         except:
@@ -210,14 +261,17 @@ def add_domain_monitor(domain: str, user_id: int, domain_info: Dict[str, Any]) -
     if user_id_str not in monitors:
         monitors[user_id_str] = []
     
+    # Normalize domain for consistent storage
+    normalized_domain = normalize_domain(domain)
+    
     # Check if domain already exists for this user
     for existing_domain in monitors[user_id_str]:
-        if existing_domain['domain'].lower() == domain.lower():
+        if existing_domain['domain'].lower() == normalized_domain.lower():
             return False  # Domain already exists
     
     # Add new domain - ensure all datetime fields are strings
     monitor_data = {
-        "domain": domain,
+        "domain": normalized_domain,  # Use normalized domain
         "added_date": datetime.now().isoformat(),
         "expiration_date": domain_info.get('expiration_date'),
         "creation_date": domain_info.get('creation_date'),
@@ -244,10 +298,13 @@ def remove_domain_monitor(domain: str, user_id: int) -> bool:
     if user_id_str not in monitors:
         return False
     
+    # Normalize domain for consistent comparison
+    normalized_domain = normalize_domain(domain)
+    
     original_length = len(monitors[user_id_str])
     monitors[user_id_str] = [
         d for d in monitors[user_id_str] 
-        if d['domain'].lower() != domain.lower()
+        if d['domain'].lower() != normalized_domain.lower()
     ]
     
     if len(monitors[user_id_str]) < original_length:
@@ -305,20 +362,24 @@ def check_expiring_domains() -> Dict[str, List[Dict[str, Any]]]:
             
             expiration_date = domain_data.get('expiration_date')
             if expiration_date:
-                try:
-                    # Parse the expiration date (ISO 8601 format)
-                    exp_date = datetime.fromisoformat(expiration_date.replace('Z', '+00:00'))
-                    # Remove timezone info for comparison
-                    exp_date_naive = exp_date.replace(tzinfo=None)
-                    days_until_expiry = (exp_date_naive - current_time).days
-                    
-                    if 0 <= days_until_expiry <= 7:
-                        # Create a copy of domain_data and add days_until_expiry as integer
-                        notification_data = domain_data.copy()
-                        notification_data['days_until_expiry'] = days_until_expiry
-                        user_expiring.append(notification_data)
-                except Exception as e:
-                    print(f"Error parsing expiration date for {domain_data['domain']}: {e}")
+                parsed_date = parse_iso_datetime(expiration_date)
+                if parsed_date:
+                    try:
+                        # Ensure both dates are timezone-aware for proper comparison
+                        current_time_utc = current_time.replace(tzinfo=timezone.utc) if current_time.tzinfo is None else current_time
+                        parsed_date_utc = parsed_date.replace(tzinfo=timezone.utc) if parsed_date.tzinfo is None else parsed_date
+                        
+                        days_until_expiry = (parsed_date_utc - current_time_utc).days
+                        
+                        if 0 <= days_until_expiry <= 7:
+                            # Create a copy of domain_data and add days_until_expiry as integer
+                            notification_data = domain_data.copy()
+                            notification_data['days_until_expiry'] = days_until_expiry
+                            user_expiring.append(notification_data)
+                    except Exception as e:
+                        print(f"Error calculating expiry days for {domain_data['domain']}: {e}")
+                else:
+                    print(f"Could not parse expiration date for {domain_data['domain']}: {expiration_date}")
         
         if user_expiring:
             expiring_domains[user_id] = user_expiring
@@ -340,20 +401,24 @@ def get_expiring_domains_without_update() -> Dict[str, List[Dict[str, Any]]]:
         for domain_data in domains:
             expiration_date = domain_data.get('expiration_date')
             if expiration_date:
-                try:
-                    # Parse the expiration date (ISO 8601 format)
-                    exp_date = datetime.fromisoformat(expiration_date.replace('Z', '+00:00'))
-                    # Remove timezone info for comparison
-                    exp_date_naive = exp_date.replace(tzinfo=None)
-                    days_until_expiry = (exp_date_naive - current_time).days
-                    
-                    if 0 <= days_until_expiry <= 7:
-                        # Create a copy of domain_data and add days_until_expiry as integer
-                        notification_data = domain_data.copy()
-                        notification_data['days_until_expiry'] = days_until_expiry
-                        user_expiring.append(notification_data)
-                except Exception as e:
-                    print(f"Error parsing expiration date for {domain_data['domain']}: {e}")
+                parsed_date = parse_iso_datetime(expiration_date)
+                if parsed_date:
+                    try:
+                        # Ensure both dates are timezone-aware for proper comparison
+                        current_time_utc = current_time.replace(tzinfo=timezone.utc) if current_time.tzinfo is None else current_time
+                        parsed_date_utc = parsed_date.replace(tzinfo=timezone.utc) if parsed_date.tzinfo is None else parsed_date
+                        
+                        days_until_expiry = (parsed_date_utc - current_time_utc).days
+                        
+                        if 0 <= days_until_expiry <= 7:
+                            # Create a copy of domain_data and add days_until_expiry as integer
+                            notification_data = domain_data.copy()
+                            notification_data['days_until_expiry'] = days_until_expiry
+                            user_expiring.append(notification_data)
+                    except Exception as e:
+                        print(f"Error calculating expiry days for {domain_data['domain']}: {e}")
+                else:
+                    print(f"Could not parse expiration date for {domain_data['domain']}: {expiration_date}")
         
         if user_expiring:
             expiring_domains[user_id] = user_expiring
