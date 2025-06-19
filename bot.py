@@ -17,7 +17,7 @@ from commands import (
   bincheck_command, domain_command, registrars_command,
   ipdetail_command, iplocation_command, mcserver_command,
   zipcode_command, whois_command, add_monitor_command, 
-  remove_monitor_command, list_monitors_command
+  remove_monitor_command, list_monitors_command, check_domains_now_command
 )
 
 # Load environment variables
@@ -77,6 +77,11 @@ async def on_ready():
         from commands.whois.monitor import setup_domain_monitor
         domain_monitor = setup_domain_monitor(client)
         print("Domain monitoring system initialized")
+        
+        # Perform startup domain check
+        await domain_monitor.check_on_startup()
+        print("Startup domain check completed")
+        
     except Exception as e:
         print(f"Failed to initialize domain monitoring: {e}")
 
@@ -202,6 +207,12 @@ async def domain_monitor_remove(interaction: discord.Interaction, domain: str):
 async def domain_monitor_list(interaction: discord.Interaction):
     """List all your monitored domains."""
     await list_monitors_command(interaction)
+
+
+@client.tree.command(name='check-domains-now', description='Manually check domains now')
+async def check_domains_now(interaction: discord.Interaction):
+    """Manually check domains now."""
+    await check_domains_now_command(interaction)
 
 
 if __name__ == "__main__":

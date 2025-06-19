@@ -5,7 +5,7 @@ from .domain.handler import domain_command, registrars_command
 from .ipaddress.handler import ipdetail_command, iplocation_command
 from .minecraft.handler import mcserver_command
 from .zipcode.handler import zipcode_command
-from .whois.handler import whois_command, add_monitor_command, remove_monitor_command, list_monitors_command
+from .whois.handler import whois_command, add_monitor_command, remove_monitor_command, list_monitors_command, check_domains_now_command
 
 # Import all script functions for compatibility
 from .bincheck.script import binCheckRequest as bin_check_request
@@ -32,6 +32,7 @@ __all__ = [
     'add_monitor_command',
     'remove_monitor_command',
     'list_monitors_command',
+    'check_domains_now_command',
     
     # Script functions (for compatibility)
     'bin_check_request',

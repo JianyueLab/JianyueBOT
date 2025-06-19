@@ -4,6 +4,8 @@ from typing import Optional, Dict, Any, List
 import json
 import os
 from datetime import datetime, timedelta
+import re
+from urllib.parse import quote
 
 client = Cloudflare(
     api_token=CLOUDFLARE_API_TOKEN
@@ -12,19 +14,168 @@ client = Cloudflare(
 # 监控数据文件路径
 MONITOR_FILE = "domain_monitors.json"
 
+
+class DateTimeEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle datetime objects."""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+
+def validate_domain(domain: str) -> bool:
+    """Validate domain name format."""
+    # Remove any leading/trailing whitespace
+    domain = domain.strip().lower()
+    
+    # Basic domain pattern
+    pattern = r'^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)*$'
+    
+    # Check if domain matches pattern
+    if not re.match(pattern, domain):
+        return False
+    
+    # Check domain length (max 253 characters)
+    if len(domain) > 253:
+        return False
+    
+    # Check each label length (max 63 characters)
+    labels = domain.split('.')
+    for label in labels:
+        if len(label) > 63:
+            return False
+    
+    return True
+
+
+def normalize_domain(domain: str) -> str:
+    """Normalize domain name for API calls."""
+    # Remove any leading/trailing whitespace and convert to lowercase
+    domain = domain.strip().lower()
+    
+    # Remove any protocol prefixes
+    if domain.startswith(('http://', 'https://', 'www.')):
+        domain = domain.replace('http://', '').replace('https://', '').replace('www.', '')
+    
+    # Remove trailing slash
+    domain = domain.rstrip('/')
+    
+    return domain
+
+
 def checkWhois(domain: str) -> Optional[Dict[str, Any]]:
     """Get whois information for a domain."""
     try:
+        # Normalize and validate domain
+        normalized_domain = normalize_domain(domain)
+        
+        if not validate_domain(normalized_domain):
+            print(f"Invalid domain format: {domain}")
+            return None
+        
+        # URL encode the domain for API call
+        encoded_domain = quote(normalized_domain)
+        
         whois = client.intel.whois.get(
             account_id=CLOUDFLARE_ACCOUNT_ID,
-            domain=domain
+            domain=encoded_domain
         )
         
-        return {
-            "domain": whois.domain,
-            "expiration_date": whois.expiration_date_raw,
-            "registrar": whois.registrar,
+        # Create result dict with safe attribute access
+        result = {
+            "domain": getattr(whois, 'domain', normalized_domain),
+            "expiration_date": getattr(whois, 'expiration_date_raw', None),
+            "registrar": getattr(whois, 'registrar', None),
         }
+        
+        # Try to get additional fields if they exist
+        try:
+            result["creation_date"] = getattr(whois, 'creation_date_raw', None)
+        except:
+            result["creation_date"] = None
+            
+        try:
+            result["updated_date"] = getattr(whois, 'updated_date_raw', None)
+        except:
+            result["updated_date"] = None
+            
+        try:
+            result["registrant_organization"] = getattr(whois, 'registrant_organization', None)
+        except:
+            result["registrant_organization"] = None
+            
+        try:
+            result["registrant_country"] = getattr(whois, 'registrant_country', None)
+        except:
+            result["registrant_country"] = None
+            
+        try:
+            result["name_servers"] = getattr(whois, 'name_servers', None)
+        except:
+            result["name_servers"] = None
+            
+        try:
+            result["status"] = getattr(whois, 'status', None)
+        except:
+            result["status"] = None
+            
+        try:
+            result["dnssec"] = getattr(whois, 'dnssec', None)
+        except:
+            result["dnssec"] = None
+            
+        try:
+            result["registrant_email"] = getattr(whois, 'registrant_email', None)
+        except:
+            result["registrant_email"] = None
+            
+        try:
+            result["registrant_phone"] = getattr(whois, 'registrant_phone', None)
+        except:
+            result["registrant_phone"] = None
+            
+        try:
+            result["registrant_name"] = getattr(whois, 'registrant_name', None)
+        except:
+            result["registrant_name"] = None
+            
+        try:
+            result["registrant_address"] = getattr(whois, 'registrant_address', None)
+        except:
+            result["registrant_address"] = None
+            
+        try:
+            result["registrant_city"] = getattr(whois, 'registrant_city', None)
+        except:
+            result["registrant_city"] = None
+            
+        try:
+            result["registrant_state"] = getattr(whois, 'registrant_state', None)
+        except:
+            result["registrant_state"] = None
+            
+        try:
+            result["registrant_postal_code"] = getattr(whois, 'registrant_postal_code', None)
+        except:
+            result["registrant_postal_code"] = None
+            
+        try:
+            result["admin_email"] = getattr(whois, 'admin_email', None)
+        except:
+            result["admin_email"] = None
+            
+        try:
+            result["tech_email"] = getattr(whois, 'tech_email', None)
+        except:
+            result["tech_email"] = None
+            
+        try:
+            result["billing_email"] = getattr(whois, 'billing_email', None)
+        except:
+            result["billing_email"] = None
+        
+        return result
+        
     except Exception as e:
         print(f"Error checking whois for {domain}: {e}")
         return None
@@ -46,7 +197,7 @@ def save_monitors(monitors: Dict[str, List[Dict]]):
     """Save domain monitors to file."""
     try:
         with open(MONITOR_FILE, 'w', encoding='utf-8') as f:
-            json.dump(monitors, f, ensure_ascii=False, indent=2)
+            json.dump(monitors, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
     except Exception as e:
         print(f"Error saving monitors: {e}")
 
@@ -64,12 +215,19 @@ def add_domain_monitor(domain: str, user_id: int, domain_info: Dict[str, Any]) -
         if existing_domain['domain'].lower() == domain.lower():
             return False  # Domain already exists
     
-    # Add new domain
+    # Add new domain - ensure all datetime fields are strings
     monitor_data = {
         "domain": domain,
         "added_date": datetime.now().isoformat(),
         "expiration_date": domain_info.get('expiration_date'),
+        "creation_date": domain_info.get('creation_date'),
+        "updated_date": domain_info.get('updated_date'),
         "registrar": domain_info.get('registrar'),
+        "registrant_organization": domain_info.get('registrant_organization'),
+        "registrant_country": domain_info.get('registrant_country'),
+        "name_servers": domain_info.get('name_servers'),
+        "status": domain_info.get('status'),
+        "dnssec": domain_info.get('dnssec'),
         "last_checked": datetime.now().isoformat()
     }
     
@@ -114,7 +272,14 @@ def update_domain_info(domain_data: Dict[str, Any]) -> Dict[str, Any]:
     
     if fresh_info:
         domain_data['expiration_date'] = fresh_info.get('expiration_date')
+        domain_data['creation_date'] = fresh_info.get('creation_date')
+        domain_data['updated_date'] = fresh_info.get('updated_date')
         domain_data['registrar'] = fresh_info.get('registrar')
+        domain_data['registrant_organization'] = fresh_info.get('registrant_organization')
+        domain_data['registrant_country'] = fresh_info.get('registrant_country')
+        domain_data['name_servers'] = fresh_info.get('name_servers')
+        domain_data['status'] = fresh_info.get('status')
+        domain_data['dnssec'] = fresh_info.get('dnssec')
         domain_data['last_checked'] = datetime.now().isoformat()
     
     return domain_data
@@ -138,17 +303,20 @@ def check_expiring_domains() -> Dict[str, List[Dict[str, Any]]]:
             except:
                 domain_data = update_domain_info(domain_data)
             
-            exp_date_str = domain_data.get('expiration_date')
-            if exp_date_str:
+            expiration_date = domain_data.get('expiration_date')
+            if expiration_date:
                 try:
-                    exp_date = datetime.fromisoformat(exp_date_str.replace('Z', '+00:00'))
+                    # Parse the expiration date (ISO 8601 format)
+                    exp_date = datetime.fromisoformat(expiration_date.replace('Z', '+00:00'))
                     # Remove timezone info for comparison
                     exp_date_naive = exp_date.replace(tzinfo=None)
                     days_until_expiry = (exp_date_naive - current_time).days
                     
                     if 0 <= days_until_expiry <= 7:
-                        domain_data['days_until_expiry'] = days_until_expiry
-                        user_expiring.append(domain_data)
+                        # Create a copy of domain_data and add days_until_expiry as integer
+                        notification_data = domain_data.copy()
+                        notification_data['days_until_expiry'] = days_until_expiry
+                        user_expiring.append(notification_data)
                 except Exception as e:
                     print(f"Error parsing expiration date for {domain_data['domain']}: {e}")
         
@@ -157,6 +325,39 @@ def check_expiring_domains() -> Dict[str, List[Dict[str, Any]]]:
     
     # Save updated monitor data
     save_monitors(monitors)
+    return expiring_domains
+
+
+def get_expiring_domains_without_update() -> Dict[str, List[Dict[str, Any]]]:
+    """Get expiring domains without updating the data (for startup check)."""
+    monitors = load_monitors()
+    expiring_domains = {}
+    current_time = datetime.now()
+    
+    for user_id, domains in monitors.items():
+        user_expiring = []
+        
+        for domain_data in domains:
+            expiration_date = domain_data.get('expiration_date')
+            if expiration_date:
+                try:
+                    # Parse the expiration date (ISO 8601 format)
+                    exp_date = datetime.fromisoformat(expiration_date.replace('Z', '+00:00'))
+                    # Remove timezone info for comparison
+                    exp_date_naive = exp_date.replace(tzinfo=None)
+                    days_until_expiry = (exp_date_naive - current_time).days
+                    
+                    if 0 <= days_until_expiry <= 7:
+                        # Create a copy of domain_data and add days_until_expiry as integer
+                        notification_data = domain_data.copy()
+                        notification_data['days_until_expiry'] = days_until_expiry
+                        user_expiring.append(notification_data)
+                except Exception as e:
+                    print(f"Error parsing expiration date for {domain_data['domain']}: {e}")
+        
+        if user_expiring:
+            expiring_domains[user_id] = user_expiring
+    
     return expiring_domains
 
 
