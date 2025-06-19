@@ -120,6 +120,43 @@ async def whois_command(interaction: discord.Interaction, domain: str):
             )
             await interaction.followup.send(embed=embed)
             return
+        
+        # Check if the result has meaningful data
+        has_meaningful_data = any([
+            result.get('registrar'),
+            result.get('creation_date'),
+            result.get('updated_date'),
+            result.get('expiration_date'),
+            result.get('registrant_organization'),
+            result.get('registrant_name'),
+            result.get('registrant_country'),
+            result.get('status'),
+            result.get('name_servers')
+        ])
+        
+        if not has_meaningful_data:
+            embed = discord.Embed(
+                title="⚠️ Limited Domain Information",
+                description=f"Domain `{normalized_domain}` exists but has very limited public information available.",
+                color=0xffa500
+            )
+            embed.add_field(
+                name="Domain",
+                value=result['domain'],
+                inline=True
+            )
+            embed.add_field(
+                name="Status",
+                value="Domain exists but whois data is limited or protected",
+                inline=False
+            )
+            embed.add_field(
+                name="Possible Reasons",
+                value="• Domain has privacy protection enabled\n• Registrar doesn't provide full whois data\n• Domain is newly registered\n• TLD has restricted whois access",
+                inline=False
+            )
+            await interaction.followup.send(embed=embed)
+            return
             
         embed = discord.Embed(
             title=f"🔍 Domain Information - {result['domain']}",
@@ -140,6 +177,8 @@ async def whois_command(interaction: discord.Interaction, domain: str):
         )
         
         # Dates Information
+        date_fields_added = 0
+        
         if result.get('creation_date'):
             formatted_date, _ = format_domain_date(result['creation_date'], "Creation Date")
             embed.add_field(
@@ -147,6 +186,7 @@ async def whois_command(interaction: discord.Interaction, domain: str):
                 value=formatted_date,
                 inline=True
             )
+            date_fields_added += 1
         
         if result.get('updated_date'):
             formatted_date, _ = format_domain_date(result['updated_date'], "Updated Date")
@@ -155,6 +195,7 @@ async def whois_command(interaction: discord.Interaction, domain: str):
                 value=formatted_date,
                 inline=True
             )
+            date_fields_added += 1
         
         if result.get('expiration_date'):
             formatted_date, days_until_expiry = format_domain_date(result['expiration_date'], "Expiration Date")
@@ -164,6 +205,7 @@ async def whois_command(interaction: discord.Interaction, domain: str):
                 value=formatted_date,
                 inline=True
             )
+            date_fields_added += 1
             
             if days_until_expiry is not None:
                 embed.add_field(
@@ -186,6 +228,14 @@ async def whois_command(interaction: discord.Interaction, domain: str):
                     embed.color = 0xffff00  # Yellow for caution
                     embed.set_footer(text="⚠️ Domain will expire in 3 months")
         
+        # If no date information is available, add a note
+        if date_fields_added == 0:
+            embed.add_field(
+                name="📅 Date Information",
+                value="Date information is not publicly available for this domain",
+                inline=False
+            )
+        
         # Registrant Information
         if result.get('registrant_organization') or result.get('registrant_name'):
             registrant_info = []
@@ -205,8 +255,16 @@ async def whois_command(interaction: discord.Interaction, domain: str):
         
         # Contact Information
         contact_info = []
+        privacy_protected = False
+        
         if result.get('registrant_email'):
-            contact_info.append(f"**Registrant:** {result['registrant_email']}")
+            email = result['registrant_email']
+            if 'redacted' in email.lower() or 'privacy' in email.lower() or len(email) > 100:
+                privacy_protected = True
+                contact_info.append(f"**Registrant:** 🔒 Privacy Protected")
+            else:
+                contact_info.append(f"**Registrant:** {email}")
+                
         if result.get('admin_email'):
             contact_info.append(f"**Admin:** {result['admin_email']}")
         if result.get('tech_email'):
@@ -214,10 +272,22 @@ async def whois_command(interaction: discord.Interaction, domain: str):
         if result.get('billing_email'):
             contact_info.append(f"**Billing:** {result['billing_email']}")
         
+        # Check for other privacy indicators
+        if result.get('registrant_name') == 'REDACTED FOR PRIVACY':
+            privacy_protected = True
+        if result.get('registrant_phone') == 'REDACTED FOR PRIVACY':
+            privacy_protected = True
+            
         if contact_info:
             embed.add_field(
                 name="Contact Information",
                 value="\n".join(contact_info),
+                inline=False
+            )
+        elif privacy_protected:
+            embed.add_field(
+                name="Contact Information",
+                value="🔒 Contact information is protected by privacy services",
                 inline=False
             )
         
